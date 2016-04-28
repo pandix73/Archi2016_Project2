@@ -66,8 +66,15 @@ typedef struct _IDtoEX{
 	unsigned funct;
 }IDtoEX;
 
+typedef struct _EXtoDM{
+	unsigned ALUout;
+	unsigned rd;
+	unsigned rt;
+}EXtoDM;
+
 IFtoID IFID;
 IDtoEX IDEX;
+EXtoDM EXDM;
 
 void read_d_memory(int load_num){
 	int i;
@@ -109,12 +116,20 @@ void ID(){
 		IDEX.funct = IFID.instruction << 26 >> 26;
 		IDEX.rs    = IFID.instruction <<  6 >> 27;
 		IDEX.rt    = IFID.instruction << 11 >> 27;
+		
+		IDEX.rs    = reg[IDEX.rs];
+		IDEX.rt	   = reg[IDEX.rt];
+
 		IDEX.rd	   = IFID.instruction << 16 >> 27;
 		IDEX.C	   = IFID.instruction << 21 >> 27;
 	} else if (IDEX.opcode >= 4 && IDEX.opcode <= 43){
 		short tempC;
 		IDEX.rs	   = IFID.instruction <<  6 >> 27;
 		IDEX.rt	   = IFID.instruction << 11 >> 27;
+		
+		IDEX.rs    = reg[IDEX.rs];
+		IDEX.rt    = reg[IDEX.rt];
+		
 		tempC	   = IFID.instruction << 16 >> 16;
 		if(IDEX.opcode == andi || IDEX.opcode == ori || IDEX.opcode == nori)
 			IDEX.C = (unsigned short)tempC;
@@ -125,6 +140,101 @@ void ID(){
 	} else {
 	 // halt
 	}
+}
+
+void EX(){	
+	if(IDEX.opcode == R){	
+		switch(IDEX.funct){
+			case add:
+				int s_sign = IDEX.rs >> 31;
+				int t_sign = IDEX.rt >> 31;
+				IDEX.ALUout = IDEX.rs + IDEX.rt;
+				printf("add %u = %u + %u\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
+					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+				break;
+			case addu:
+				printf("addu\n");
+				IDEX.ALUout = IDEX.rs + IDEX.rt;
+				break;
+			case sub:
+				s_sign = IDEX.rs >> 31;
+				t_sign = (~IDEX.rt + 1) >> 31;
+				IDEX.ALUout = IDEX.rs + (~IDEX.rt + 1);
+				printf("sub %d = %d - %d\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
+					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+				break;
+			case and:
+				printf("and\n");
+				IDEX.ALUout = IDEX.rs & IDEX.rt;
+				break;
+			case or:
+				printf("or\n");
+				IDEX.ALUout = IDEX.rs | IDEX.rt;
+				break;
+			case xor:
+				printf("xor\n");
+				IDEX.ALUout = IDEX.rs ^ IDEX.rt;
+				break;
+			case nor:
+				printf("nor\n");
+				IDEX.ALUout = ~(IDEX.rs | IDEX.rt);
+				break;
+			case nand:
+				printf("nand\n");
+				IDEX.ALUout = ~(IDEX.rs & IDEX.rt);
+				break;
+			case slt:
+				IDEX.ALUout = ((int)IDEX.rs < (int)IDEX.rt);
+				printf("slt %d = %d < %d\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				break;
+			case sll:
+				printf("sll\n");
+				IDEX.ALUout = IDEX.rt << shamt;
+				break;
+			case srl:
+				printf("srl\n");
+				IDEX.ALUout = IDEX.rt >> shamt;
+				break;
+			case sra:
+				printf("sra\n");
+				IDEX.ALUout = (int)IDEX.rt >> shamt;
+				break;
+			case jr:
+				printf("jr\n");
+				PC = IDEX.rs;
+				break;
+		}
+			
+	} else if (IDEX.opcode >= 4 && IDEX.opcode <= 43){
+		if(IDEX.opcode == addi || IDEX.opcode == addiu || (IDEX.opcode <= 40 && IDEX.opcode >= 32)){
+			EXDM.ALUout = IDEX.rs + IDEX.C;
+		} else if (IDEX.opcode == lui){
+			EXDM.ALUout = IDEX.C << 16;
+		} else if (IDEX.opcode == andi){
+			EXDM.ALUout = IDEX.rs & IDEX.C;
+		} else if (IDEX.opcode == ori){
+			EXDM.ALUout = IDEX.rs | IDEX.C;
+		} else if (IDEX.opcode == nori){
+			EXDM.ALUout = ~(IDEX.rs | IDEX.C);
+		} else if (IDEX.opcode == slti){
+			EXDM.ALUout = ((int)IDEX.rs < (int)IDEX.C);
+		} else if (IDEX.opcode == beq){
+			//EXDM.ALUout = IDEX.rs & IDEX.C;
+		} else if (IDEX.opcode == bne){
+			//EXDM.ALUout = IDEX.rs & IDEX.C;
+		} else if (IDEX.opcode == bgtz){
+			//EXDM.ALUout = IDEX.rs & IDEX.C;
+		}
+	} else if (IDEX.opcode < 4){
+		//branch
+	} else {
+	 // halt
+	}
+
+
+
 }
 
 int main(){

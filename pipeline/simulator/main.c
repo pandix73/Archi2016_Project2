@@ -60,21 +60,34 @@ typedef struct _IFtoID{
 typedef struct _IDtoEX{
 	unsigned opcode;
 	unsigned rs;
+	unsigned regrs;
 	unsigned rt;
+	unsigned regrt;
 	unsigned rd;
 	unsigned C; //shamt, immediate, address
 	unsigned funct;
 }IDtoEX;
 
 typedef struct _EXtoDM{
+	unsigned opcode;
 	unsigned ALUout;
 	unsigned rd;
 	unsigned rt;
+	unsigned regrt;
 }EXtoDM;
+
+typedef struct _DMtoWB{
+	unsigned opcode;
+	unsigned MDR;
+	unsigned ALUout;
+	unsigned rd;
+	unsigned rt;
+}DMtoWB;
 
 IFtoID IFID;
 IDtoEX IDEX;
 EXtoDM EXDM;
+DMtoWB DMWB;
 
 void read_d_memory(int load_num){
 	int i;
@@ -117,8 +130,8 @@ void ID(){
 		IDEX.rs    = IFID.instruction <<  6 >> 27;
 		IDEX.rt    = IFID.instruction << 11 >> 27;
 		
-		IDEX.rs    = reg[IDEX.rs];
-		IDEX.rt	   = reg[IDEX.rt];
+		IDEX.regrs = reg[IDEX.rs];
+		IDEX.regrt = reg[IDEX.rt];
 
 		IDEX.rd	   = IFID.instruction << 16 >> 27;
 		IDEX.C	   = IFID.instruction << 21 >> 27;
@@ -127,8 +140,8 @@ void ID(){
 		IDEX.rs	   = IFID.instruction <<  6 >> 27;
 		IDEX.rt	   = IFID.instruction << 11 >> 27;
 		
-		IDEX.rs    = reg[IDEX.rs];
-		IDEX.rt    = reg[IDEX.rt];
+		IDEX.regrs = reg[IDEX.rs];
+		IDEX.regrt = reg[IDEX.rt];
 		
 		tempC	   = IFID.instruction << 16 >> 16;
 		if(IDEX.opcode == andi || IDEX.opcode == ori || IDEX.opcode == nori)
@@ -146,80 +159,80 @@ void EX(){
 	if(IDEX.opcode == R){	
 		switch(IDEX.funct){
 			case add:
-				int s_sign = IDEX.rs >> 31;
-				int t_sign = IDEX.rt >> 31;
-				IDEX.ALUout = IDEX.rs + IDEX.rt;
-				printf("add %u = %u + %u\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				int s_sign = IDEX.regrs >> 31;
+				int t_sign = IDEX.regrt >> 31;
+				IDEX.ALUout = IDEX.regrs + IDEXreg.rt;
+				printf("add %u = %u + %u\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
 				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
 					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
 				break;
 			case addu:
 				printf("addu\n");
-				IDEX.ALUout = IDEX.rs + IDEX.rt;
+				IDEX.ALUout = IDEX.regrs + IDEX.regrt;
 				break;
 			case sub:
-				s_sign = IDEX.rs >> 31;
-				t_sign = (~IDEX.rt + 1) >> 31;
-				IDEX.ALUout = IDEX.rs + (~IDEX.rt + 1);
-				printf("sub %d = %d - %d\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				s_sign = IDEX.regrs >> 31;
+				t_sign = (~IDEX.regrt + 1) >> 31;
+				IDEX.ALUout = IDEX.regrs + (~IDEX.regrt + 1);
+				printf("sub %d = %d - %d\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
 				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
 					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
 				break;
 			case and:
 				printf("and\n");
-				IDEX.ALUout = IDEX.rs & IDEX.rt;
+				IDEX.ALUout = IDEX.regrs & IDEX.regrt;
 				break;
 			case or:
 				printf("or\n");
-				IDEX.ALUout = IDEX.rs | IDEX.rt;
+				IDEX.ALUout = IDEX.regrs | IDEX.regrt;
 				break;
 			case xor:
 				printf("xor\n");
-				IDEX.ALUout = IDEX.rs ^ IDEX.rt;
+				IDEX.ALUout = IDEX.regrs ^ IDEX.regrt;
 				break;
 			case nor:
 				printf("nor\n");
-				IDEX.ALUout = ~(IDEX.rs | IDEX.rt);
+				IDEX.ALUout = ~(IDEX.regrs | IDEX.regrt);
 				break;
 			case nand:
 				printf("nand\n");
-				IDEX.ALUout = ~(IDEX.rs & IDEX.rt);
+				IDEX.ALUout = ~(IDEX.regrs & IDEX.regrt);
 				break;
 			case slt:
-				IDEX.ALUout = ((int)IDEX.rs < (int)IDEX.rt);
-				printf("slt %d = %d < %d\n", IDEX.ALUout, IDEX.rs, IDEX.rt);
+				IDEX.ALUout = ((int)IDEX.regrs < (int)IDEX.regrt);
+				printf("slt %d = %d < %d\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
 				break;
 			case sll:
 				printf("sll\n");
-				IDEX.ALUout = IDEX.rt << shamt;
+				IDEX.ALUout = IDEX.regrt << IDEX.C;
 				break;
 			case srl:
 				printf("srl\n");
-				IDEX.ALUout = IDEX.rt >> shamt;
+				IDEX.ALUout = IDEX.regrt >> IDEX.C;
 				break;
 			case sra:
 				printf("sra\n");
-				IDEX.ALUout = (int)IDEX.rt >> shamt;
+				IDEX.ALUout = (int)IDEX.regrt >> IDEX.C;
 				break;
 			case jr:
 				printf("jr\n");
-				PC = IDEX.rs;
+				PC = IDEX.regrs;
 				break;
 		}
 			
-	} else if (IDEX.opcode >= 4 && IDEX.opcode <= 43){
+	} else if (IDEX.opcode >= 4 && IDEX.opcode <= 43){ // I instruction
 		if(IDEX.opcode == addi || IDEX.opcode == addiu || (IDEX.opcode <= 40 && IDEX.opcode >= 32)){
-			EXDM.ALUout = IDEX.rs + IDEX.C;
+			EXDM.ALUout = IDEX.regrs + IDEX.C;
 		} else if (IDEX.opcode == lui){
 			EXDM.ALUout = IDEX.C << 16;
 		} else if (IDEX.opcode == andi){
-			EXDM.ALUout = IDEX.rs & IDEX.C;
+			EXDM.ALUout = IDEX.regrs & IDEX.C;
 		} else if (IDEX.opcode == ori){
-			EXDM.ALUout = IDEX.rs | IDEX.C;
+			EXDM.ALUout = IDEX.regrs | IDEX.C;
 		} else if (IDEX.opcode == nori){
-			EXDM.ALUout = ~(IDEX.rs | IDEX.C);
+			EXDM.ALUout = ~(IDEX.regrs | IDEX.C);
 		} else if (IDEX.opcode == slti){
-			EXDM.ALUout = ((int)IDEX.rs < (int)IDEX.C);
+			EXDM.ALUout = ((int)IDEX.regrs < (int)IDEX.C);
 		} else if (IDEX.opcode == beq){
 			//EXDM.ALUout = IDEX.rs & IDEX.C;
 		} else if (IDEX.opcode == bne){
@@ -232,9 +245,51 @@ void EX(){
 	} else {
 	 // halt
 	}
+	
+	EXDM.opcode = IDEX.opcode;
+	EXDM.rd = IDEX.rd;
+	EXDM.rt = IDEX.rt;
+	EXDM.regrt = IDEX.regrt;
+}
 
+DM(){
+	unsigned addr = EXDM.ALUout;
+	if (EXDM.opcode == lw){
+		DMWB.MDR = d_memory[addr] << 24 | d_memory[addr+1] << 16 | d_memory[addr+2] << 8 | d_memory[addr+3];	
+	} else if (EXDM.opcode == lh){
+		DMWB.MDR = (char)d_memory[addr] << 8 | (unsigned char)d_memory[addr+1];
+	} else if (EXDM.opcode == lhu){
+		DMWB.MDR = (unsigned char)d_memory[addr] << 8 | (unsigned char)d_memory[addr+1];
+	} else if (EXDM.opcode == lb){
+		DMWB.MDR = (char)d_memory[addr];
+	} else if (EXDM.opcode == lbu){
+		DMWB.MDR = (unsigned char)d_memory[addr];
+	} else if (EXDM.opcode == sw){
+		d_memory[addr]   = EXDM.regrt >> 24;
+		d_memory[addr+1] = EXDM.regrt << 8  >> 24;
+		d_memory[addr+2] = EXDM.regrt << 16 >> 24;
+		d_memory[addr+3] = EXDM.regrt << 24 >> 24;
+	} else if (EXDM.opcode == sh){
+		d_memory[addr]   = EXDM.regrt << 16 >> 24;
+		d_memory[addr+1] = EXDM.regrt << 24 >> 24;
+	} else if (EXDM.opcode == sb){
+		d_memory[addr]   = EXDM.regrt << 24 >> 24;
+	} else {
+		DMWB.ALUout = EXDM.ALUout;
+	}
+	
+	DMWB.rd = EXDM.rd;
+	DMWB.rt = EXDM.rt;
+}
 
-
+WB(){
+	if(DMWB.opcode == R){
+		reg[DMWB.rd] = DMWB.ALUout;
+	} else if (DMWB.opcode >= 32 && DMWB.opcode <= 37){
+		reg[DMWB.rt] = DMWB.MDR;
+	} else if (DMWB.opcode >= 8  && DMWB.opcode <= 15){
+		reg[DMWB.rt] = DWMB.ALUout;
+	}
 }
 
 int main(){

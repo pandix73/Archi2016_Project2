@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define $sp 29
 // R
@@ -66,6 +67,7 @@ typedef struct _IDtoEX{
 	unsigned rd;
 	unsigned C; //shamt, immediate, address
 	unsigned funct;
+	unsigned isNOP;
 }IDtoEX;
 
 typedef struct _EXtoDM{
@@ -74,6 +76,8 @@ typedef struct _EXtoDM{
 	unsigned rd;
 	unsigned rt;
 	unsigned regrt;
+	unsigned funct;
+	unsigned isNOP;
 }EXtoDM;
 
 typedef struct _DMtoWB{
@@ -82,12 +86,61 @@ typedef struct _DMtoWB{
 	unsigned ALUout;
 	unsigned rd;
 	unsigned rt;
+	unsigned funct;
+	unsigned isNOP;
 }DMtoWB;
 
 IFtoID IFID;
 IDtoEX IDEX;
 EXtoDM EXDM;
 DMtoWB DMWB;
+DMtoWB prev;
+
+char* ins[65];
+char* rIns[45];
+
+void setInstructions(){
+	// R
+	rIns[add] = "ADD";
+	rIns[addu] = "ADDU";
+	rIns[sub] = "SUB";
+	rIns[and] = "AND";
+	rIns[or] = "OR";
+	rIns[xor] = "XOR";
+	rIns[nor] = "NOR";
+	rIns[nand] = "NAND";
+	rIns[slt] = "SLT";
+	rIns[sll] = "SLL";
+	rIns[srl] = "SRL";
+	rIns[sra] = "SRA";
+	rIns[jr] = "JR";
+	// I
+	ins[addi] = "ADDI";
+	ins[addiu] = "ADDIU";
+	ins[lw] = "LW";
+	ins[lh] = "LH";
+	ins[lhu] = "LHU";
+	ins[lb] = "LB";
+	ins[lbu] = "LBU";
+	ins[sw] = "SW";
+	ins[sh] = "SH";
+	ins[sb] = "SB";
+	ins[lui] = "LUI";
+	ins[andi] = "ANDI";
+	ins[ori] = "ORI";
+	ins[nori] = "NORI";
+	ins[slti] = "SLTI";
+	ins[beq] = "BEQ";
+	ins[bne] = "BNE";
+	ins[bgtz] = "BGTZ";
+	// J
+	ins[j] = "J";
+	ins[jal] = "JAL";
+	// S
+	ins[halt] = "HALT";
+}
+
+
 
 void read_d_memory(int load_num){
 	int i;
@@ -105,10 +158,12 @@ void read_d_memory(int load_num){
 }
 
 void read_i_memory(int load_num){
-	unsigned int i, opcode;
-	int funct, rs, rt, rd, shamt, C_26;
-	short C;
-	for(i = 0; i < load_num; i++){
+	int i;
+	for(i = 0; i < 2; i++){
+		//change 12 34 56 78  to  78 56 34 12
+		i_memory[i] = i_memory[i] << 24 | i_memory[i] >> 8 << 24 >> 8 | i_memory[i] >> 16 << 24 >> 16 | i_memory[i] >> 24;
+	}
+	for(i = 2; i < 2+i_memory[1]; i++){
 		//change 12 34 56 78  to  78 56 34 12
 		i_memory[i] = i_memory[i] << 24 | i_memory[i] >> 8 << 24 >> 8 | i_memory[i] >> 16 << 24 >> 16 | i_memory[i] >> 24;
 	}
@@ -118,9 +173,8 @@ void read_i_memory(int load_num){
 
 void IF(int PC){
 	IFID.instruction = i_memory[PC/4 + 2];
-	IFID.PC = PC + 4;
+	IFID.PC = PC + 4;	
 }
-
 
 
 void ID(){
@@ -153,66 +207,74 @@ void ID(){
 	} else {
 	 // halt
 	}
+	
+	if((IFID.instruction & 0xFC1FFFFF) == 0){
+		IDEX.isNOP = 1;
+	} else {
+		IDEX.isNOP = 0;
+	}
+
 }
 
 void EX(){	
 	if(IDEX.opcode == R){	
 		switch(IDEX.funct){
+			int s_sign, t_sign;
 			case add:
-				int s_sign = IDEX.regrs >> 31;
-				int t_sign = IDEX.regrt >> 31;
-				IDEX.ALUout = IDEX.regrs + IDEXreg.rt;
-				printf("add %u = %u + %u\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
-				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
-					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+				s_sign = IDEX.regrs >> 31;
+				t_sign = IDEX.regrt >> 31;
+				EXDM.ALUout = IDEX.regrs + IDEX.regrt;
+				printf("add %u = %u + %u\n", EXDM.ALUout, IDEX.regrs, IDEX.regrt);
+				//if(s_sign == t_sign && s_sign != EXDM.ALUout >> 31)
+					//fprintf(error, "In cycle %d: Number Overflow\n", cycle);
 				break;
 			case addu:
 				printf("addu\n");
-				IDEX.ALUout = IDEX.regrs + IDEX.regrt;
+				EXDM.ALUout = IDEX.regrs + IDEX.regrt;
 				break;
 			case sub:
 				s_sign = IDEX.regrs >> 31;
 				t_sign = (~IDEX.regrt + 1) >> 31;
-				IDEX.ALUout = IDEX.regrs + (~IDEX.regrt + 1);
-				printf("sub %d = %d - %d\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
-				if(s_sign == t_sign && s_sign != IDEX.ALUout >> 31)
-					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+				EXDM.ALUout = IDEX.regrs + (~IDEX.regrt + 1);
+				printf("sub %d = %d - %d\n", EXDM.ALUout, IDEX.regrs, IDEX.regrt);
+				//if(s_sign == t_sign && s_sign != EXDM.ALUout >> 31)
+					//fprintf(error, "In cycle %d: Number Overflow\n", cycle);
 				break;
 			case and:
 				printf("and\n");
-				IDEX.ALUout = IDEX.regrs & IDEX.regrt;
+				EXDM.ALUout = IDEX.regrs & IDEX.regrt;
 				break;
 			case or:
 				printf("or\n");
-				IDEX.ALUout = IDEX.regrs | IDEX.regrt;
+				EXDM.ALUout = IDEX.regrs | IDEX.regrt;
 				break;
 			case xor:
 				printf("xor\n");
-				IDEX.ALUout = IDEX.regrs ^ IDEX.regrt;
+				EXDM.ALUout = IDEX.regrs ^ IDEX.regrt;
 				break;
 			case nor:
 				printf("nor\n");
-				IDEX.ALUout = ~(IDEX.regrs | IDEX.regrt);
+				EXDM.ALUout = ~(IDEX.regrs | IDEX.regrt);
 				break;
 			case nand:
 				printf("nand\n");
-				IDEX.ALUout = ~(IDEX.regrs & IDEX.regrt);
+				EXDM.ALUout = ~(IDEX.regrs & IDEX.regrt);
 				break;
 			case slt:
-				IDEX.ALUout = ((int)IDEX.regrs < (int)IDEX.regrt);
-				printf("slt %d = %d < %d\n", IDEX.ALUout, IDEX.regrs, IDEX.regrt);
+				EXDM.ALUout = ((int)IDEX.regrs < (int)IDEX.regrt);
+				printf("slt %d = %d < %d\n", EXDM.ALUout, IDEX.regrs, IDEX.regrt);
 				break;
 			case sll:
 				printf("sll\n");
-				IDEX.ALUout = IDEX.regrt << IDEX.C;
+				EXDM.ALUout = IDEX.regrt << IDEX.C;
 				break;
 			case srl:
 				printf("srl\n");
-				IDEX.ALUout = IDEX.regrt >> IDEX.C;
+				EXDM.ALUout = IDEX.regrt >> IDEX.C;
 				break;
 			case sra:
 				printf("sra\n");
-				IDEX.ALUout = (int)IDEX.regrt >> IDEX.C;
+				EXDM.ALUout = (int)IDEX.regrt >> IDEX.C;
 				break;
 			case jr:
 				printf("jr\n");
@@ -250,9 +312,12 @@ void EX(){
 	EXDM.rd = IDEX.rd;
 	EXDM.rt = IDEX.rt;
 	EXDM.regrt = IDEX.regrt;
+	EXDM.funct = IDEX.funct;
+
+	EXDM.isNOP = IDEX.isNOP;
 }
 
-DM(){
+void DM(){
 	unsigned addr = EXDM.ALUout;
 	if (EXDM.opcode == lw){
 		DMWB.MDR = d_memory[addr] << 24 | d_memory[addr+1] << 16 | d_memory[addr+2] << 8 | d_memory[addr+3];	
@@ -278,17 +343,70 @@ DM(){
 		DMWB.ALUout = EXDM.ALUout;
 	}
 	
+	DMWB.opcode = EXDM.opcode;
+	DMWB.funct = EXDM.funct;
 	DMWB.rd = EXDM.rd;
 	DMWB.rt = EXDM.rt;
+
+	DMWB.isNOP = EXDM.isNOP;
 }
 
-WB(){
+void WB(){
+	prev.opcode = DMWB.opcode;
+	prev.funct  = DMWB.funct;
+	prev.isNOP = DMWB.isNOP;
+
 	if(DMWB.opcode == R){
 		reg[DMWB.rd] = DMWB.ALUout;
 	} else if (DMWB.opcode >= 32 && DMWB.opcode <= 37){
 		reg[DMWB.rt] = DMWB.MDR;
 	} else if (DMWB.opcode >= 8  && DMWB.opcode <= 15){
-		reg[DMWB.rt] = DWMB.ALUout;
+		reg[DMWB.rt] = DMWB.ALUout;
+	}
+}
+
+void print(int PC, int cycle){
+	int reg_n;
+	fprintf(snap, "cycle %d\n", cycle);
+	for(reg_n = 0; reg_n < 32; reg_n++){
+		fprintf(snap, "$%02d: 0x%08X\n", reg_n, reg[reg_n]);
+	}
+	fprintf(snap, "PC: 0x%08X\n", PC);
+	fprintf(snap, "IF: 0x%08X\n", IFID.instruction);
+	fprintf(snap, "ID: %s\n", (IDEX.isNOP == 1) ? "NOP" : (IDEX.opcode == R) ? rIns[IDEX.funct] : ins[IDEX.opcode]);
+	fprintf(snap, "EX: %s\n", (EXDM.isNOP == 1) ? "NOP" : (EXDM.opcode == R) ? rIns[EXDM.funct] : ins[EXDM.opcode]);
+	fprintf(snap, "DM: %s\n", (DMWB.isNOP == 1) ? "NOP" : (DMWB.opcode == R) ? rIns[DMWB.funct] : ins[DMWB.opcode]);
+	fprintf(snap, "WB: %s\n", (prev.isNOP == 1) ? "NOP" : (prev.opcode == R) ? rIns[prev.funct] : ins[prev.opcode]);
+	fprintf(snap, "\n\n");
+}
+
+void initialize(){
+	memset(&IFID, 0, sizeof(IFID));
+	memset(&IDEX, 0, sizeof(IDEX));
+	memset(&EXDM, 0, sizeof(EXDM));
+	memset(&DMWB, 0, sizeof(DMWB));
+	memset(&prev, 0, sizeof(prev));
+	IDEX.isNOP = 1;
+	EXDM.isNOP = 1;
+	DMWB.isNOP = 1;
+	prev.isNOP = 1;
+}
+
+void run_pipeline(){
+
+	int PC = i_memory[0];
+	int cycle = 0;
+
+	while((PC - i_memory[0])/4 < i_memory[1]){
+
+		WB();
+		DM();
+		EX();
+		ID();
+		IF(PC);
+
+		print(PC, cycle++);
+		PC = IFID.PC;
 	}
 }
 
@@ -314,7 +432,10 @@ int main(){
 
 	read_d_memory(d_size/4); 
 	read_i_memory(i_size/4);
-	
+	initialize();
+	setInstructions();
+	run_pipeline();
+
 	// terminate
 	fclose(i_file);
 	fclose(d_file);

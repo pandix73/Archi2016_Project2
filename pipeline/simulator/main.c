@@ -52,6 +52,11 @@ unsigned int sp, d_data[256];
 unsigned char d_memory[1024];
 unsigned int reg[32];
 
+typedef struct _forward{
+	int happen;
+	int rs;
+	int rt;
+}forward;
 
 typedef struct _IFtoID{
 	unsigned instruction;
@@ -60,6 +65,7 @@ typedef struct _IFtoID{
 }IFtoID;
 
 typedef struct _IDtoEX{
+	unsigned PC;
 	unsigned opcode;
 	unsigned rs;
 	unsigned regrs;
@@ -69,8 +75,9 @@ typedef struct _IDtoEX{
 	unsigned C; //shamt, immediate, address
 	unsigned funct;
 	unsigned isNOP;
-	unsigned finalPC;
+	//unsigned finalPC;
 	unsigned stall;
+	forward fwd;
 }IDtoEX;
 
 typedef struct _EXtoDM{
@@ -174,10 +181,11 @@ void read_i_memory(int load_num){
 
 
 
-void IF(int PC){
+void IF(){
 	if(IFID.stall == 0){
 		IFID.instruction = i_memory[PC/4 + 2];
-		IFID.PC = PC + 4;
+		IFID.PC = PC;
+		PC += 4;
 	}
 	IFID.stall = IDEX.stall;
 }
@@ -185,6 +193,7 @@ void IF(int PC){
 
 void ID(){
 	if(IDEX.stall == 0){
+		IDEX.PC = IFID.PC;
 		IDEX.opcode = IFID.instruction >> 26;
 		if(IDEX.opcode == R){	
 			IDEX.funct = IFID.instruction << 26 >> 26;
@@ -220,25 +229,49 @@ void ID(){
 			IDEX.isNOP = 0;
 		}
 	}
-	
-	if(IDEX.opcode == beq){
+
+	IDEX.fwd.happen = 0;
+	if(IDEX.opcode == beq || IDEX.opcode == bne || IDEX.opcode == bgtz){
 		if( (EXDM.opcode == R && (EXDM.rd == IDEX.rs || EXDM.rd == IDEX.rt)) || // R type
-			(DMWB.opcode == R && (DMWB.rd == IDEX.rs || DMWB.rd == IDEX.rt)) || // R type
-			(EXDM.opcode >= 8 && EXDM.opcode <= 37 && (EXDM.rt == IDEX.rs || EXDM.rt == IDEX.rt)) || // I type change rt
-			(DMWB.opcode >= 8 && DMWB.opcode <= 37 && (DMWB.rt == IDEX.rs || DMWB.rt == IDEX.rt)) ){ 	 // I type change rt
+			//(DMWB.opcode == R && (DMWB.rd == IDEX.rs || DMWB.rd == IDEX.rt)) || // R type
+			(EXDM.opcode >= 8 && EXDM.opcode <= 37 && (EXDM.rt == IDEX.rs || EXDM.rt == IDEX.rt))  // I type change rt
+			//(DMWB.opcode >= 8 && DMWB.opcode <= 37 && (DMWB.rt == IDEX.rs || DMWB.rt == IDEX.rt)) ){ 	 // I type change rt
+			){
 			IDEX.stall = 1;
 		} else {
+			if(DMWB.opcode == R && DMWB.rd == IDEX.rs){
+				IDEX.regrs = DMWB.ALUout;
+				IDEX.fwd.happen = 1;
+				IDEX.fwd.rs = IDEX.rs;
+				IDEX.fwd.rt = 0;
+			} else if (DMWB.opcode == R && DMWB.rd == IDEX.rt){
+				IDEX.regrt = DMWB.ALUout;
+				IDEX.fwd.happen = 1;
+				IDEX.fwd.rs = 0;
+				IDEX.fwd.rt = IDEX.rt;
+			} else if (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs){
+				IDEX.regrs = DMWB.MDR;
+				IDEX.fwd.happen = 1;
+				IDEX.fwd.rs = IDEX.rs;
+				IDEX.fwd.rt = 0;
+			} else if(DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt){
+				IDEX.regrt = DMWB.MDR;
+				IDEX.fwd.happen = 1;
+				IDEX.fwd.rs = 0;
+				IDEX.fwd.rt = IDEX.rt;
+			} else {
+				IDEX.fwd.happen = 0;
+			}
+
 			IDEX.stall = 0;
-		//IDEX.finalPC = IFID.PC + (IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0;
+			if(IDEX.opcode == beq)
+				IFID.PC += (IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0;
+			else if (IDEX.opcode == bne)
+				IFID.PC += (IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0;
+			else if (IDEX.opcode == bgtz)
+				IFID.PC += ((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0;
 		}
-	} else if (IDEX.opcode == bne){
-		//IDEX.finalPC = IFID.PC + (IDEX.regrs != IDEX.regrt) ? IDEX.C << 2: 0;
-	} else if (IDEX.opcode == bgtz){
-		//IDEX.finalPC = IFID.PC + ((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0;
-	} else {
-		IDEX.finalPC = IFID.PC;
 	}
-	IDEX.finalPC = IDEX.finalPC;
 }
 
 void EX(){	
@@ -407,9 +440,13 @@ void print(int PC, int cycle){
 	for(reg_n = 0; reg_n < 32; reg_n++){
 		fprintf(snap, "$%02d: 0x%08X\n", reg_n, reg[reg_n]);
 	}
-	fprintf(snap, "PC: 0x%08X\n", PC);
+	fprintf(snap, "PC: 0x%08X\n", PC-4);
 	fprintf(snap, "IF: 0x%08X%s\n", IFID.instruction, (IDEX.stall) ? " to_be_stalled" : "");
-	fprintf(snap, "ID: %s%s\n", (IDEX.isNOP) ? "NOP" : (IDEX.opcode == R) ? rIns[IDEX.funct] : ins[IDEX.opcode], (IDEX.stall) ? " to_be_stalled" : "");
+	
+	fprintf(snap, "ID: %s%s", (IDEX.isNOP) ? "NOP" : (IDEX.opcode == R) ? rIns[IDEX.funct] : ins[IDEX.opcode], (IDEX.stall) ? " to_be_stalled" : "");
+	if(IDEX.fwd.happen)fprintf(snap, " fwd_EX-DM_%s_$%d", (IDEX.fwd.rs) ? "rs" : "rt", (IDEX.fwd.rs) ? IDEX.fwd.rs : IDEX.fwd.rt);
+	fprintf(snap, "\n");
+
 	fprintf(snap, "EX: %s\n", (EXDM.isNOP) ? "NOP" : (EXDM.opcode == R) ? rIns[EXDM.funct] : ins[EXDM.opcode]);
 	fprintf(snap, "DM: %s\n", (DMWB.isNOP) ? "NOP" : (DMWB.opcode == R) ? rIns[DMWB.funct] : ins[DMWB.opcode]);
 	fprintf(snap, "WB: %s\n", (prev.isNOP) ? "NOP" : (prev.opcode == R) ? rIns[prev.funct] : ins[prev.opcode]);
@@ -430,7 +467,7 @@ void initialize(){
 
 void run_pipeline(){
 
-	int PC = i_memory[0];
+	PC = i_memory[0];
 	int cycle = 0;
 
 	while((PC - i_memory[0])/4 < i_memory[1]){
@@ -439,10 +476,10 @@ void run_pipeline(){
 		DM();
 		EX();
 		ID();
-		IF(PC);
+		IF();
 
 		print(PC, cycle++);
-		PC = IFID.PC;
+		//PC = IFID.PC;
 		//PC = IDEX.finalPC;
 	}
 }

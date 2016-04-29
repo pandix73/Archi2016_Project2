@@ -231,12 +231,24 @@ void ID(){
 	}
 
 	IDEX.fwd.happen = 0;
+
+	/*//only rs
+	if(IDEX.opcode >= 7 && IDEX.opcode <= 41){
+		if( EXDM.opcode == R && IDEX.rs == EXDM.rd || DMWB.opcode == R && IDEX.rs == DMWB.rd || prev.opcode == R && IDEX.rs == prev.rd || // R type
+			EXDM.opcode >= 8 && EXDM.opcode <= 37 && IDEX.rs == EXDM.rt || // EXDM I type
+			DMWB.opcode >= 8 && DMWB.opcode <= 37 && IDEX.rs == DMWB.rt || // DMWB I type
+			prev.opcode >= 8 && prev.opcode <= 37 && IDEX.rs == prev.rt)
+			IDEX.stall = 1;
+		else
+			IDEX.stall = 0;
+	}*/
+
+
 	if(IDEX.opcode == beq || IDEX.opcode == bne || IDEX.opcode == bgtz){
 		if( (EXDM.opcode == R && (EXDM.rd == IDEX.rs || EXDM.rd == IDEX.rt)) || // R type
-			//(DMWB.opcode == R && (DMWB.rd == IDEX.rs || DMWB.rd == IDEX.rt)) || // R type
-			(EXDM.opcode >= 8 && EXDM.opcode <= 37 && (EXDM.rt == IDEX.rs || EXDM.rt == IDEX.rt))  // I type change rt
-			//(DMWB.opcode >= 8 && DMWB.opcode <= 37 && (DMWB.rt == IDEX.rs || DMWB.rt == IDEX.rt)) ){ 	 // I type change rt
-			){
+			(DMWB.opcode == R && (DMWB.rd == IDEX.rs || DMWB.rd == IDEX.rt)) || // R type
+			(EXDM.opcode >= 8 && EXDM.opcode <= 37 && (EXDM.rt == IDEX.rs || EXDM.rt == IDEX.rt)) || // I type change rt
+			(DMWB.opcode >= 8 && DMWB.opcode <= 37 && (DMWB.rt == IDEX.rs || DMWB.rt == IDEX.rt)) ){ 	 // I type change rt
 			IDEX.stall = 1;
 		} else {
 			if(DMWB.opcode == R && DMWB.rd == IDEX.rs){
@@ -249,7 +261,7 @@ void ID(){
 				IDEX.fwd.happen = 1;
 				IDEX.fwd.rs = 0;
 				IDEX.fwd.rt = IDEX.rt;
-			} else if (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs){
+			/*} else if (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs){
 				IDEX.regrs = DMWB.MDR;
 				IDEX.fwd.happen = 1;
 				IDEX.fwd.rs = IDEX.rs;
@@ -258,7 +270,7 @@ void ID(){
 				IDEX.regrt = DMWB.MDR;
 				IDEX.fwd.happen = 1;
 				IDEX.fwd.rs = 0;
-				IDEX.fwd.rt = IDEX.rt;
+				IDEX.fwd.rt = IDEX.rt;*/
 			} else {
 				IDEX.fwd.happen = 0;
 			}
@@ -358,12 +370,6 @@ void EX(){
 			EXDM.ALUout = ~(IDEX.regrs | IDEX.C);
 		} else if (IDEX.opcode == slti){
 			EXDM.ALUout = ((int)IDEX.regrs < (int)IDEX.C);
-		} else if (IDEX.opcode == beq){
-			//EXDM.ALUout = IDEX.rs & IDEX.C;
-		} else if (IDEX.opcode == bne){
-			//EXDM.ALUout = IDEX.rs & IDEX.C;
-		} else if (IDEX.opcode == bgtz){
-			//EXDM.ALUout = IDEX.rs & IDEX.C;
 		}
 	} else if (IDEX.opcode < 4){
 		//branch

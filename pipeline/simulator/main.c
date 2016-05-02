@@ -53,7 +53,7 @@ unsigned char d_memory[1024];
 unsigned int reg[32];
 int cycle;
 int halterror;
-unsigned branchPC;
+int branchPC;
 
 typedef struct _forward{
 	int happen;
@@ -159,8 +159,6 @@ void setInstructions(){
 	ins[halt] = "HALT";
 }
 
-
-
 void read_d_memory(int load_num){
 	int i;
 	for(i = 0; i < load_num; i++){
@@ -193,12 +191,15 @@ void read_i_memory(int load_num){
 void IF(){
 	if(IFID.stall == 0){
 		IFID.instruction = i_memory[PC/4 + 2];
-		IFID.flush = IDEX.flush;
 		IFID.PC = PC;
-		if(IDEX.flush) PC = branchPC;
-		else PC += 4;
-	} 
+		IFID.stall = IDEX.stall;
+		PC += 4;
+	} else if(IFID.stall == 1 && IDEX.stall == 0){
+		IFID.stall = 0;
+	}
 	IFID.stall = IDEX.stall;
+	IFID.flush = IDEX.flush;
+	if(IDEX.flush) PC = branchPC;
 }
 
 
@@ -223,7 +224,7 @@ void ID(){
 			
 			IDEX.regrs = reg[IDEX.rs];
 			IDEX.regrt = reg[IDEX.rt];
-			printf("%d %d %d\n", cycle, IDEX.rs, IDEX.regrs);
+			//printf("%d %d %d\n", cycle, IDEX.rs, IDEX.regrs);
 
 
 			tempC	   = IFID.instruction << 16 >> 16;
@@ -231,7 +232,7 @@ void ID(){
 				IDEX.C = (unsigned short)tempC;
 			else 
 				IDEX.C = tempC;
-		} else if (IDEX.opcode < 4){
+		} else if (IDEX.opcode == j || IDEX.opcode == jal){
 			IDEX.C	   = IFID.instruction <<  6 >>  6;
 		} else {
 		 // halt
@@ -247,12 +248,12 @@ void ID(){
 	}
 	IDEX.fwd.happen = 0;
 
-	int rtInEXDM = (EXDM.opcode == R && EXDM.funct != 8 && IDEX.rt == EXDM.rd || EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rt) && IDEX.rt != 0;
-	int rtInDMWB = (DMWB.opcode == R && DMWB.funct != 8 && IDEX.rt == DMWB.rd || DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt) && IDEX.rt != 0;
-	int rsInEXDM = (EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd || EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs) && IDEX.rs != 0;
-	int rsInDMWB = (DMWB.opcode == R && DMWB.funct != 8 && IDEX.rs == DMWB.rd || DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs) && IDEX.rs != 0;
-	int EXDMforwarding = (EXDM.opcode == R && EXDM.funct != 8 || EXDM.opcode >= 8 && EXDM.opcode <= 15 || EXDM.opcode >= 40 && EXDM.opcode <= 43);
-	int DMWBforwarding = (DMWB.opcode == R && DMWB.funct != 8 || DMWB.opcode >= 8 && DMWB.opcode <= 15 || DMWB.opcode >= 40 && DMWB.opcode <= 43);
+	int rtInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rt == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rt)) && (IDEX.rt != 0));
+	int rtInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rt == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt)) && (IDEX.rt != 0));
+	int rsInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs)) && (IDEX.rs != 0));
+	int rsInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rs == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs)) && (IDEX.rs != 0));
+	int EXDMforwarding = ((EXDM.opcode == R && EXDM.funct != 8) || (EXDM.opcode >= 8 && EXDM.opcode <= 15) || (EXDM.opcode >= 40 && EXDM.opcode <= 43));
+	int DMWBforwarding = ((DMWB.opcode == R && DMWB.funct != 8) || (DMWB.opcode >= 8 && DMWB.opcode <= 15) || (DMWB.opcode >= 40 && DMWB.opcode <= 43));
 
 	if(IDEX.opcode == R && (IDEX.funct == sll || IDEX.funct == srl || IDEX.funct == sra)){ // use only rt
 		if(rtInEXDM){
@@ -267,16 +268,16 @@ void ID(){
 		} else {
 			IDEX.stall = 0;
 		}
-	} else if(IDEX.opcode >= 7 && IDEX.opcode <= 41){ // use only rs
+	} else if((IDEX.opcode >= 7 && IDEX.opcode <= 41) || (IDEX.opcode == R && IDEX.funct == jr)){ // use only rs
 		if(rsInEXDM){
-			if(EXDMforwarding && IDEX.opcode != bgtz){
+			if(EXDMforwarding && IDEX.opcode != bgtz && IDEX.opcode != R){
 				EXDM.predict = 1;
 				IDEX.stall = 0; // predict forwarding
 			} else { 
 				IDEX.stall = 1;
 			}
 		} else if (rsInDMWB){
-			if(DMWBforwarding && IDEX.opcode == bgtz){
+			if(DMWBforwarding && (IDEX.opcode == bgtz || IDEX.opcode == R)){
 				IDEX.fwd.happen = 1;
 				IDEX.fwd.rs = 1;
 				IDEX.fwd.rt = 0;
@@ -346,18 +347,32 @@ void ID(){
 	} else {
 		IDEX.stall = 0;
 	}
+	
+	//branch
 
 	if(IDEX.stall == 0){
 		if(IDEX.opcode == beq){
-			branchPC = IFID.PC + 4 + (IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0;
+			branchPC = IFID.PC + 4 + ((IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0);
+			printf("%d->beq %X <- %X + %X\n", cycle, branchPC, IFID.PC, IDEX.C << 2);
 			IDEX.flush = (IDEX.regrs == IDEX.regrt) ? 1 : 0;
+			printf("%d %d %d stall = %d\n", IDEX.flush, IDEX.regrs, IDEX.regrt, IFID.stall);
 		} else if (IDEX.opcode == bne){
-			branchPC = IFID.PC + 4 + (IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0;
+			branchPC = IFID.PC + 4 + ((IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0);
+			printf("->bne %X <- %X + %X\n", branchPC, IFID.PC, IDEX.C << 2);
 			IDEX.flush = (IDEX.regrs != IDEX.regrt) ? 1 : 0;
 		} else if (IDEX.opcode == bgtz){
 			branchPC = IFID.PC + 4 + (((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0);
 			IDEX.flush = ((int)IDEX.regrs > 0) ? 1 : 0;
 			printf("->bgtz %X <- %X + %X\n", branchPC, IFID.PC, IDEX.C << 2);
+		} else if(IDEX.opcode == R && IDEX.funct == jr){
+			branchPC = IDEX.regrs;
+			IDEX.flush = 1;
+		} else if(IDEX.opcode == j){
+			branchPC = (IFID.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
+			IDEX.flush = 1;
+		} else if(IDEX.opcode == jal){
+			branchPC = (IFID.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
+			IDEX.flush = 1;
 		} else {
 			IDEX.flush = 0;
 		}
@@ -485,7 +500,7 @@ void EX(){
 	EXDM.rt = IDEX.rt;
 	EXDM.regrt = IDEX.regrt;
 	EXDM.funct = IDEX.funct;
-
+	EXDM.PC = IDEX.PC;
 	EXDM.isNOP = IDEX.isNOP;
 }
 
@@ -541,7 +556,7 @@ void DM(){
 	DMWB.funct = EXDM.funct;
 	DMWB.rd = EXDM.rd;
 	DMWB.rt = EXDM.rt;
-
+	DMWB.PC = EXDM.PC;
 	DMWB.isNOP = EXDM.isNOP;
 }
 
@@ -567,6 +582,8 @@ void WB(){
 		} else {
 			reg[DMWB.rt] = DMWB.ALUout;
 		}
+	} else if (DMWB.opcode == jal){
+		reg[31] = DMWB.PC + 4;
 	}
 
 	/*if( DMWB.opcode == R && DMWB.funct != 8 && DMWB.rd == 0 ||

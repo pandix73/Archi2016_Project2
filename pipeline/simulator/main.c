@@ -47,8 +47,8 @@ FILE *i_file, *d_file, *error, *snap;
 int i_size, d_size;
 char *i_buffer, *d_buffer;
 size_t i_result, d_result;
-unsigned int PC, i_memory[1024];
-unsigned int sp, d_data[256];
+unsigned int PC, i_memory[1026];
+unsigned int sp, d_data[1026];
 unsigned char d_memory[1024];
 unsigned int reg[32];
 int cycle;
@@ -93,7 +93,7 @@ typedef struct _EXtoDM{
 	unsigned regrt;
 	unsigned funct;
 	unsigned isNOP;
-	unsigned predict;
+	unsigned predict; // 0 as not, 1 as rs, 2 as rt, 3 as both
 	forward fwd;
 }EXtoDM;
 
@@ -160,9 +160,13 @@ void setInstructions(){ // fast transfer
 
 void read_d_memory(int load_num){
 	int i;
-	for(i = 0; i < load_num; i++){
+	for(i = 0; i < 2; i++){
 		//change 12 34 56 78  to  78 56 34 12
-		d_data[i] = d_data[i] << 24 | d_data[i] >> 8 << 24 >> 8 | d_data[i] >> 16 << 24 >> 16 | d_data[i] >> 24;	
+		d_data[i] = d_data[i] << 24 | d_data[i] >> 8 << 24 >> 8 | d_data[i] >> 16 << 24 >> 16 | d_data[i] >> 24;
+	}
+	for(i = 2; i < 2+d_data[1]; i++){
+		//change 12 34 56 78  to  78 56 34 12
+		d_data[i] = d_data[i] << 24 | d_data[i] >> 8 << 24 >> 8 | d_data[i] >> 16 << 24 >> 16 | d_data[i] >> 24;
 	}
 	reg[29] = d_data[0];
 	for(i = 0; i < d_data[1]; i++){
@@ -183,10 +187,14 @@ void read_i_memory(int load_num){
 		//change 12 34 56 78  to  78 56 34 12
 		i_memory[i] = i_memory[i] << 24 | i_memory[i] >> 8 << 24 >> 8 | i_memory[i] >> 16 << 24 >> 16 | i_memory[i] >> 24;
 	}
+	for(; i < 1024; i++)
+		i_memory[i] = 0;
 }
 
 void IF(){ // seems to be ok
-	IFID.instruction = i_memory[(PC-i_memory[0])/4 + 2];
+	if(PC < i_memory[0]) IFID.instruction = 0;
+	else if((PC-i_memory[0])/4 >= i_memory[1])IFID.instruction = 0;
+	else IFID.instruction = i_memory[(PC-i_memory[0])/4 + 2];
 	IFID.PC = PC;
 	IFID.flush = IDEX.flush;
 	PC = (IDEX.stall) ? PC : (IDEX.flush) ? branchPC : PC + 4; // decide next PC
@@ -235,6 +243,7 @@ void ID(){
 	// may forwarding stage : EXDM(now in DMWB) -> ID, EXDM(now in EXDM) -> EX(now in here)
 	// may forwarding instruction: R type, I type except load, jal
 	IDEX.fwd.happen = 0;
+	EXDM.predict = 0;
 	int rtInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rt == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rt) || (EXDM.opcode == jal && IDEX.rt == 31)) && (IDEX.rt != 0));
 	int rtInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rt == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt) || (DMWB.opcode == jal && IDEX.rt == 31)) && (IDEX.rt != 0));
 	int rsInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs) || (EXDM.opcode == jal && IDEX.rs == 31)) && (IDEX.rs != 0));
@@ -276,11 +285,12 @@ void ID(){
 		} else{
 			IDEX.stall = 0;
 		}
-	} else if (IDEX.opcode != j && IDEX.opcode != jal && IDEX.opcode != halt){ // use both rs and rt
+	} else if (IDEX.opcode != lui && IDEX.opcode != j && IDEX.opcode != jal && IDEX.opcode != halt){ // use both rs and rt
+		
 		if(IDEX.rs == IDEX.rt){
 			if(rsInEXDM){
-				if(EXDMforwarding && IDEX.opcode != bne && IDEX.opcode != beq){
-					EXDM.predict = 1; // predict rs forwarding
+				if(EXDMforwarding && (IDEX.opcode != bne) && (IDEX.opcode != beq)){
+					EXDM.predict = 3; // predict rs rt forwarding
 					IDEX.stall = 0;
 				} else {
 					IDEX.stall = 1;
@@ -289,7 +299,7 @@ void ID(){
 				if(DMWBforwarding && (IDEX.opcode == bne || IDEX.opcode == beq)){ // bne beq forwarding
 					IDEX.fwd.happen = 1;
 					IDEX.fwd.rs = 1;
-					IDEX.fwd.rt = 0;
+					IDEX.fwd.rt = 1;
 					IDEX.regrs = DMWB.ALUout;
 					IDEX.regrt = DMWB.ALUout;
 					IDEX.stall = 0;
@@ -300,10 +310,10 @@ void ID(){
 				IDEX.stall = 0;
 			}
 		} else {
-			if((rsInEXDM || rtInEXDM) && (rsInDMWB || rtInDMWB)){ // only stall
+			if((rsInEXDM && rtInDMWB) || (rtInEXDM && rsInDMWB)){ // only stall
 				IDEX.stall = 1;
 			} else if (rsInEXDM || rtInEXDM){ // both not in DMWB
-				if(EXDMforwarding && IDEX.opcode != bne && IDEX.opcode != beq){
+				if(EXDMforwarding && (IDEX.opcode != bne) && (IDEX.opcode != beq)){
 					if(rsInEXDM){ // rs forwarding
 						EXDM.predict = 1;
 					} else { // rt forwarding
@@ -370,15 +380,10 @@ void EX(){
 		return;
 	} else if (EXDM.predict > 0){
 		EXDM.fwd.happen = 1;
-		EXDM.fwd.rs = (EXDM.predict == 1) ? IDEX.rs : 0;
-		EXDM.fwd.rt = (EXDM.predict == 2) ? IDEX.rt : 0;
-		if(EXDM.fwd.rs){
-			IDEX.regrs = DMWB.ALUout;
-			if(IDEX.rs == IDEX.rt)
-				IDEX.regrt = DMWB.ALUout;
-		} else {
-			IDEX.regrt = DMWB.ALUout;
-		}
+		EXDM.fwd.rs = (EXDM.predict == 1 || EXDM.predict == 3) ? IDEX.rs : 0;
+		EXDM.fwd.rt = (EXDM.predict == 2 || EXDM.predict == 3) ? IDEX.rt : 0;
+		if(EXDM.fwd.rs) IDEX.regrs = DMWB.ALUout;
+		if(EXDM.fwd.rt) IDEX.regrt = DMWB.ALUout;
 		EXDM.predict = 0;
 	} else {
 		EXDM.fwd.happen = 0;
@@ -581,11 +586,17 @@ void print(int PC, int cycle){
 	fprintf(snap, "IF: 0x%08X%s\n", IFID.instruction, (IDEX.stall) ? " to_be_stalled" : (IDEX.flush) ? " to_be_flushed" : "");
 	
 	fprintf(snap, "ID: %s%s", (IDEX.isNOP) ? "NOP" : (IDEX.opcode == R) ? rIns[IDEX.funct] : ins[IDEX.opcode], (IDEX.stall) ? " to_be_stalled" : "");
-	if(IDEX.fwd.happen)fprintf(snap, " fwd_EX-DM_%s_$%d", (IDEX.fwd.rs) ? "rs" : "rt", (IDEX.fwd.rs) ? IDEX.rs : IDEX.rt);
+	if(IDEX.fwd.happen){
+		if(IDEX.fwd.rs)fprintf(snap, " fwd_EX-DM_rs_$%d", IDEX.rs );
+		if(IDEX.fwd.rt)fprintf(snap, " fwd_EX-DM_rt_$%d", IDEX.rt );	
+	}
 	fprintf(snap, "\n");
-
+	
 	fprintf(snap, "EX: %s", (EXDM.isNOP) ? "NOP" : (EXDM.opcode == R) ? rIns[EXDM.funct] : ins[EXDM.opcode]);
-	if(EXDM.fwd.happen)fprintf(snap, " fwd_EX-DM_%s_$%d", (EXDM.fwd.rs) ? "rs" : "rt", (EXDM.fwd.rs) ? EXDM.fwd.rs : EXDM.rt);
+	if(EXDM.fwd.happen){
+		if(EXDM.fwd.rs)fprintf(snap, " fwd_EX-DM_rs_$%d", EXDM.fwd.rs );
+		if(EXDM.fwd.rt)fprintf(snap, " fwd_EX-DM_rt_$%d", EXDM.fwd.rt );	
+	}
 	fprintf(snap, "\n");
 
 	fprintf(snap, "DM: %s\n", (DMWB.isNOP) ? "NOP" : (DMWB.opcode == R) ? rIns[DMWB.funct] : ins[DMWB.opcode]);
@@ -619,9 +630,10 @@ void run_pipeline(){
 		EX();
 		ID();
 		IF();
+		
 		if(doHalt == 1) return;
 		print(PC, cycle++);
-		if(halterror == 1) doHalt = 1;
+		if(halterror == 1) return;//doHalt = 1;
 		if(IDEX.opcode == halt && EXDM.opcode == halt && DMWB.opcode == halt && prev.opcode == halt)
 			return;
 	}
@@ -639,7 +651,9 @@ int main(){
 	fseek (i_file , 0 , SEEK_END);
 	fseek (d_file , 0 , SEEK_END);
 	i_size = ftell(i_file);
+	if(i_size > 1026)i_size = 1026;
 	d_size = ftell(d_file);
+	if(d_size > 1126)d_size = 1126;
 	rewind(i_file);
 	rewind(d_file);
 

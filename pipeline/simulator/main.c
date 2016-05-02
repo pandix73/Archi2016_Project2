@@ -237,7 +237,7 @@ void ID(){
 	IDEX.fwd.happen = 0;
 	int rtInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rt == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rt) || (EXDM.opcode == jal && IDEX.rt == 31)) && (IDEX.rt != 0));
 	int rtInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rt == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt) || (DMWB.opcode == jal && IDEX.rt == 31)) && (IDEX.rt != 0));
-	int rsInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs) || (EXDM.opcode == jal && IDEX.rt == 31)) && (IDEX.rs != 0));
+	int rsInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs) || (EXDM.opcode == jal && IDEX.rs == 31)) && (IDEX.rs != 0));
 	int rsInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rs == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs) || (DMWB.opcode == jal && IDEX.rs == 31)) && (IDEX.rs != 0));
 	int EXDMforwarding = ((EXDM.opcode == R && EXDM.funct != 8) || (EXDM.opcode >= 8 && EXDM.opcode <= 15) || (EXDM.opcode >= 40 && EXDM.opcode <= 43) || (EXDM.opcode == jal));
 	int DMWBforwarding = ((DMWB.opcode == R && DMWB.funct != 8) || (DMWB.opcode >= 8 && DMWB.opcode <= 15) || (DMWB.opcode >= 40 && DMWB.opcode <= 43) || (DMWB.opcode == jal));
@@ -339,22 +339,22 @@ void ID(){
 
 	if(IDEX.stall == 0){
 		if(IDEX.opcode == beq){
-			branchPC = IFID.PC + 4 + ((IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0);
+			branchPC = IDEX.PC + 4 + ((IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0);
 			IDEX.flush = (IDEX.regrs == IDEX.regrt) ? 1 : 0;
 		} else if (IDEX.opcode == bne){
-			branchPC = IFID.PC + 4 + ((IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0);
+			branchPC = IDEX.PC + 4 + ((IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0);
 			IDEX.flush = (IDEX.regrs != IDEX.regrt) ? 1 : 0;
 		} else if (IDEX.opcode == bgtz){
-			branchPC = IFID.PC + 4 + (((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0);
+			branchPC = IDEX.PC + 4 + (((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0);
 			IDEX.flush = ((int)IDEX.regrs > 0) ? 1 : 0;
 		} else if(IDEX.opcode == R && IDEX.funct == jr){
 			branchPC = IDEX.regrs;
 			IDEX.flush = 1;
 		} else if(IDEX.opcode == j){
-			branchPC = (IFID.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
+			branchPC = (IDEX.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
 			IDEX.flush = 1;
 		} else if(IDEX.opcode == jal){
-			branchPC = (IFID.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
+			branchPC = (IDEX.PC + 4) >> 28 << 28 | (unsigned int)IDEX.C << 2;
 			IDEX.flush = 1;
 		} else {
 			IDEX.flush = 0;
@@ -619,7 +619,7 @@ void run_pipeline(){
 		EX();
 		ID();
 		IF();
-		if(cycle >= 100)return;
+		//if(cycle >= 100)return;
 		if(doHalt == 1) return;
 		print(PC, cycle++);
 		if(halterror == 1) doHalt = 1;

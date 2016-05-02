@@ -53,6 +53,7 @@ unsigned char d_memory[1024];
 unsigned int reg[32];
 int cycle;
 int halterror;
+unsigned branchPC;
 
 typedef struct _forward{
 	int happen;
@@ -85,6 +86,7 @@ typedef struct _IDtoEX{
 }IDtoEX;
 
 typedef struct _EXtoDM{
+	unsigned PC;
 	unsigned opcode;
 	unsigned ALUout;
 	unsigned rd;
@@ -97,6 +99,7 @@ typedef struct _EXtoDM{
 }EXtoDM;
 
 typedef struct _DMtoWB{
+	unsigned PC;
 	unsigned opcode;
 	unsigned MDR;
 	unsigned ALUout;
@@ -190,14 +193,11 @@ void read_i_memory(int load_num){
 void IF(){
 	if(IFID.stall == 0){
 		IFID.instruction = i_memory[PC/4 + 2];
-		if(IDEX.flush){
-			PC = IFID.PC;
-			IFID.flush = 1;
-		} else {
-			IFID.flush = 0;
-		}
-		PC += 4;
-	}
+		IFID.flush = IDEX.flush;
+		IFID.PC = PC;
+		if(IDEX.flush) PC = branchPC;
+		else PC += 4;
+	} 
 	IFID.stall = IDEX.stall;
 }
 
@@ -236,7 +236,7 @@ void ID(){
 		} else {
 		 // halt
 		}
-		if((IFID.instruction & 0xFC1FFFFF) == 0){
+		if((IFID.instruction & 0xFC1FFFFF) == 0 || IFID.flush == 1){
 			IDEX.isNOP = 1;
 		} else {
 			IDEX.isNOP = 0;
@@ -349,14 +349,15 @@ void ID(){
 
 	if(IDEX.stall == 0){
 		if(IDEX.opcode == beq){
-			IFID.PC = PC + (IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0;
+			branchPC = IFID.PC + 4 + (IDEX.regrs == IDEX.regrt) ? IDEX.C << 2 : 0;
 			IDEX.flush = (IDEX.regrs == IDEX.regrt) ? 1 : 0;
 		} else if (IDEX.opcode == bne){
-			IFID.PC = PC + (IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0;
+			branchPC = IFID.PC + 4 + (IDEX.regrs != IDEX.regrt) ? IDEX.C << 2 : 0;
 			IDEX.flush = (IDEX.regrs != IDEX.regrt) ? 1 : 0;
 		} else if (IDEX.opcode == bgtz){
-			IFID.PC = PC + ((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0;
+			branchPC = IFID.PC + 4 + (((int)IDEX.regrs > 0) ? IDEX.C << 2 : 0);
 			IDEX.flush = ((int)IDEX.regrs > 0) ? 1 : 0;
+			printf("->bgtz %X <- %X + %X\n", branchPC, IFID.PC, IDEX.C << 2);
 		} else {
 			IDEX.flush = 0;
 		}
@@ -392,7 +393,7 @@ void EX(){
 				EXDM.ALUout = IDEX.regrs + IDEX.regrt;
 				printf("add %u = %u + %u\n", EXDM.ALUout, IDEX.regrs, IDEX.regrt);
 				if(s_sign == t_sign && s_sign != EXDM.ALUout >> 31)
-					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+					fprintf(error, "In cycle %d: Number Overflow\n", cycle+1);
 				break;
 			case addu:
 				printf("addu\n");
@@ -404,7 +405,7 @@ void EX(){
 				EXDM.ALUout = IDEX.regrs + (~IDEX.regrt + 1);
 				printf("sub %d = %d - %d\n", EXDM.ALUout, IDEX.regrs, IDEX.regrt);
 				if(s_sign == t_sign && s_sign != EXDM.ALUout >> 31)
-					fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+					fprintf(error, "In cycle %d: Number Overflow\n", cycle+1);
 				break;
 			case and:
 				printf("and\n");
@@ -454,7 +455,7 @@ void EX(){
 		// number overflow
 		if(IDEX.opcode >= 32 || IDEX.opcode == 8){
 			if((IDEX.regrs >> 31) == ((unsigned short)IDEX.C >> 15) && (IDEX.regrs >> 31) != ((unsigned int)addr >> 31)){
-				fprintf(error, "In cycle %d: Number Overflow\n", cycle);
+				fprintf(error, "In cycle %d: Number Overflow\n", cycle+1);
 			}
 		}
 		
@@ -498,7 +499,7 @@ void DM(){
 		if( ((EXDM.opcode == lw || EXDM.opcode == sw) && (addr > 1020 || addr < 0)) || 
 			((EXDM.opcode == lh || EXDM.opcode == lhu || EXDM.opcode == sh) && (addr > 1022 || addr < 0)) || 
 		  	((EXDM.opcode == lb || EXDM.opcode == lbu || EXDM.opcode == sb) && (addr > 1023 || addr < 0))){
-			fprintf(error, "In cycle %d: Address Overflow\n", cycle);
+			fprintf(error, "In cycle %d: Address Overflow\n", cycle+1);
 			halterror = 1;
 		}
 	}
@@ -506,7 +507,7 @@ void DM(){
 	if(EXDM.opcode >= 32){
 		if( ((EXDM.opcode == lw || EXDM.opcode == sw) && (addr % 4) != 0) || 
 			((EXDM.opcode == lh || EXDM.opcode == lhu || EXDM.opcode == sh) && (addr % 2) != 0)){
-			fprintf(error, "In cycle %d: Misalignment Error\n", cycle);
+			fprintf(error, "In cycle %d: Misalignment Error\n", cycle+1);
 			halterror = 1;	
 		}
 	}
@@ -550,7 +551,7 @@ void WB(){
 		
 	} else if(DMWB.opcode == R){
 		if(DMWB.rd == 0){
-			fprintf(error, "In cycle %d: Write $0 Error\n", cycle);
+			fprintf(error, "In cycle %d: Write $0 Error\n", cycle+1);
 		} else {
 			reg[DMWB.rd] = DMWB.ALUout;
 		}
@@ -589,8 +590,7 @@ void printReg(){
 }
 
 void print(int PC, int cycle){
-
-	fprintf(snap, "PC: 0x%08X\n", PC-4);
+	fprintf(snap, "PC: 0x%08X\n", IFID.PC);
 	fprintf(snap, "IF: 0x%08X%s\n", IFID.instruction, (IDEX.stall) ? " to_be_stalled" : (IFID.flush) ? " to_be_flushed" : "");
 	
 	fprintf(snap, "ID: %s%s", (IDEX.isNOP) ? "NOP" : (IDEX.opcode == R) ? rIns[IDEX.funct] : ins[IDEX.opcode], (IDEX.stall) ? " to_be_stalled" : "");
@@ -625,7 +625,7 @@ void run_pipeline(){
 	int doHalt = 0;
 
 	while((PC - i_memory[0])/4 < i_memory[1]){
-	
+		if(cycle >= 30)return;	
 		if(doHalt == 0)
 			printReg();
 		

@@ -611,7 +611,7 @@ void run_pipeline(){
 	cycle = 0;
 	int doHalt = 0;
 
-	while((PC - i_memory[0])/4 < i_memory[1]){
+	while(1){
 		if(doHalt == 0) printReg();
 		
 		WB();
@@ -619,10 +619,11 @@ void run_pipeline(){
 		EX();
 		ID();
 		IF();
-		//if(cycle >= 100)return;
 		if(doHalt == 1) return;
 		print(PC, cycle++);
 		if(halterror == 1) doHalt = 1;
+		if(IDEX.opcode == halt && EXDM.opcode == halt && DMWB.opcode == halt && prev.opcode == halt)
+			return;
 	}
 }
 

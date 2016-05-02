@@ -158,14 +158,12 @@ void setInstructions(){ // fast transfer
 	ins[halt] = "HALT";
 }
 
-void read_d_memory(int load_num){
+void read_d_memory(int load_num){ // same as single_cycle
 	int i;
 	for(i = 0; i < 2; i++){
-		//change 12 34 56 78  to  78 56 34 12
 		d_data[i] = d_data[i] << 24 | d_data[i] >> 8 << 24 >> 8 | d_data[i] >> 16 << 24 >> 16 | d_data[i] >> 24;
 	}
 	for(i = 2; i < 2+d_data[1]; i++){
-		//change 12 34 56 78  to  78 56 34 12
 		d_data[i] = d_data[i] << 24 | d_data[i] >> 8 << 24 >> 8 | d_data[i] >> 16 << 24 >> 16 | d_data[i] >> 24;
 	}
 	reg[29] = d_data[0];
@@ -177,14 +175,12 @@ void read_d_memory(int load_num){
 	}
 }
 
-void read_i_memory(int load_num){
+void read_i_memory(int load_num){ // same as single_cycle
 	int i;
 	for(i = 0; i < 2; i++){
-		//change 12 34 56 78  to  78 56 34 12
 		i_memory[i] = i_memory[i] << 24 | i_memory[i] >> 8 << 24 >> 8 | i_memory[i] >> 16 << 24 >> 16 | i_memory[i] >> 24;
 	}
 	for(i = 2; i < 2+i_memory[1]; i++){
-		//change 12 34 56 78  to  78 56 34 12
 		i_memory[i] = i_memory[i] << 24 | i_memory[i] >> 8 << 24 >> 8 | i_memory[i] >> 16 << 24 >> 16 | i_memory[i] >> 24;
 	}
 	for(; i < 1024; i++)
@@ -192,9 +188,8 @@ void read_i_memory(int load_num){
 }
 
 void IF(){ // seems to be ok
-	if(PC < i_memory[0]) IFID.instruction = 0;
-	else if((PC-i_memory[0])/4 >= i_memory[1])IFID.instruction = 0;
-	else IFID.instruction = i_memory[(PC-i_memory[0])/4 + 2];
+	if(PC < i_memory[0] || (PC-i_memory[0])/4 >= i_memory[1]) IFID.instruction = 0; // bound
+	else IFID.instruction = i_memory[(PC-i_memory[0])/4 + 2]; // catch instruction
 	IFID.PC = PC;
 	IFID.flush = IDEX.flush;
 	PC = (IDEX.stall) ? PC : (IDEX.flush) ? branchPC : PC + 4; // decide next PC
@@ -286,11 +281,10 @@ void ID(){
 			IDEX.stall = 0;
 		}
 	} else if (IDEX.opcode != lui && IDEX.opcode != j && IDEX.opcode != jal && IDEX.opcode != halt){ // use both rs and rt
-		
 		if(IDEX.rs == IDEX.rt){
 			if(rsInEXDM){
 				if(EXDMforwarding && (IDEX.opcode != bne) && (IDEX.opcode != beq)){
-					EXDM.predict = 3; // predict rs rt forwarding
+					EXDM.predict = 3; // predict rs and rt forwarding
 					IDEX.stall = 0;
 				} else {
 					IDEX.stall = 1;
@@ -573,7 +567,7 @@ void WB(){
 	prev.ALUout = DMWB.ALUout;
 }
 
-void printReg(){
+void printReg(){ // before the cycle
 	int reg_n;
 	fprintf(snap, "cycle %d\n", cycle);
 	for(reg_n = 0; reg_n < 32; reg_n++){
@@ -581,7 +575,7 @@ void printReg(){
 	}
 }
 
-void print(int PC, int cycle){
+void print(int PC, int cycle){ // after the cycle
 	fprintf(snap, "PC: 0x%08X\n", IFID.PC);
 	fprintf(snap, "IF: 0x%08X%s\n", IFID.instruction, (IDEX.stall) ? " to_be_stalled" : (IDEX.flush) ? " to_be_flushed" : "");
 	
@@ -604,7 +598,7 @@ void print(int PC, int cycle){
 	fprintf(snap, "\n\n");
 }
 
-void initialize(){
+void initialize(){ // struct set
 	memset(&IFID, 0, sizeof(IFID));
 	memset(&IDEX, 0, sizeof(IDEX));
 	memset(&EXDM, 0, sizeof(EXDM));
@@ -620,20 +614,16 @@ void run_pipeline(){
 
 	PC = i_memory[0];
 	cycle = 0;
-	int doHalt = 0;
 
 	while(1){
-		if(doHalt == 0) printReg();
-		
+		printReg();
 		WB();
 		DM();
 		EX();
 		ID();
 		IF();
-		
-		if(doHalt == 1) return;
 		print(PC, cycle++);
-		if(halterror == 1) return;//doHalt = 1;
+		if(halterror == 1) return;
 		if(IDEX.opcode == halt && EXDM.opcode == halt && DMWB.opcode == halt && prev.opcode == halt)
 			return;
 	}
@@ -657,7 +647,7 @@ int main(){
 	rewind(i_file);
 	rewind(d_file);
 
-	// copy the file into the buffer:
+	// copy the file into the array:
 	i_result = fread(i_memory, 4, i_size/4, i_file);
 	d_result = fread(d_data  , 4, d_size/4, d_file);
 
@@ -671,7 +661,6 @@ int main(){
 	fclose(i_file);
 	fclose(d_file);
 	fclose(error);
-	free(i_buffer);
-	free(d_buffer);
+	fclose(snap);
 	return 0;
 }

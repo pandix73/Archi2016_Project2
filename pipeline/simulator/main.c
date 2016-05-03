@@ -243,8 +243,8 @@ void ID(){
 	int rtInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rt == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rt) || (DMWB.opcode == jal && IDEX.rt == 31)) && (IDEX.rt != 0));
 	int rsInEXDM = (((EXDM.opcode == R && EXDM.funct != 8 && IDEX.rs == EXDM.rd) || (EXDM.opcode >= 8 && EXDM.opcode <= 37 && EXDM.rt == IDEX.rs) || (EXDM.opcode == jal && IDEX.rs == 31)) && (IDEX.rs != 0));
 	int rsInDMWB = (((DMWB.opcode == R && DMWB.funct != 8 && IDEX.rs == DMWB.rd) || (DMWB.opcode >= 8 && DMWB.opcode <= 37 && DMWB.rt == IDEX.rs) || (DMWB.opcode == jal && IDEX.rs == 31)) && (IDEX.rs != 0));
-	int EXDMforwarding = ((EXDM.opcode == R && EXDM.funct != 8) || (EXDM.opcode >= 8 && EXDM.opcode <= 15) || (EXDM.opcode >= 40 && EXDM.opcode <= 43) || (EXDM.opcode == jal));
-	int DMWBforwarding = ((DMWB.opcode == R && DMWB.funct != 8) || (DMWB.opcode >= 8 && DMWB.opcode <= 15) || (DMWB.opcode >= 40 && DMWB.opcode <= 43) || (DMWB.opcode == jal));
+	int EXDMforwarding = ((EXDM.opcode == R && EXDM.funct != 8) || (EXDM.opcode >= 8 && EXDM.opcode <= 15) /*|| (EXDM.opcode >= 40 && EXDM.opcode <= 43)*/ || (EXDM.opcode == jal));
+	int DMWBforwarding = ((DMWB.opcode == R && DMWB.funct != 8) || (DMWB.opcode >= 8 && DMWB.opcode <= 15) /*|| (DMWB.opcode >= 40 && DMWB.opcode <= 43)*/ || (DMWB.opcode == jal));
 
 	if(IDEX.opcode == R && (IDEX.funct == sll || IDEX.funct == srl || IDEX.funct == sra)){ // use only rt
 		if(rtInEXDM){
